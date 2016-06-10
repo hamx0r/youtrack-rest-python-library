@@ -29,7 +29,7 @@ class _Workspaces:
         path = "/workspaces/%s" % (workspace)
         return self.client.get(path, params, **options)
         
-    def find_all(self, params={}, **options): 
+    def find_all(self, params={}, **options):
         """Returns the compact records for all workspaces visible to the authorized user.
 
         Parameters
