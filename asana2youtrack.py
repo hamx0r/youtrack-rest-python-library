@@ -24,18 +24,15 @@ Asana Task  ... YouTrack Issue
 id              numberInProject
 assignee
 due_on          <None>
-
-
-
-
-TODO:
-* Deal with Asana subtasks
-* Create YouTrack users from Asana users
-* Offer different mappings of Asana Projects to YouTrack (ie Type, Priority, Subsystem)
-* Migrate all Workspaces to Projects
-* Add option to migrate ALL tasks or just incomplete ones
-* Migrate attachements
 """
+
+
+
+# TODO Deal with Asana subtasks
+# TODO Offer different mappings of Asana Projects to YouTrack (ie Type, Priority, Subsystem)
+# TODO Add option to migrate ALL tasks or just incomplete ones
+# TODO Migrate attachements
+
 __author__ = 'Jason Haury'
 import argparse
 import asana
@@ -47,15 +44,16 @@ from datetime import datetime
 # ----------------------
 # Global Mapping Dicts
 # ----------------------
-_user_map = dict()
-_workspace_map = dict()
-_project_map = dict()
-_task_map = dict()
+_user_map = dict()  # map by email
+_workspace_map = dict()  # map by name
+_project_map = dict()  # map by name
+_task_map = dict()  # map by Asana name and YouTrack summary
 
 # These dicts refactor our API-returned lists into dicts
 _a_users = dict()
 _yt_users = dict()
-
+_a_tasks = dict()
+_yt_issues = dict()
 
 # ----------------------
 # Helper Functions
@@ -63,12 +61,20 @@ _yt_users = dict()
 def dump(j):
     return json.dumps(j, indent=4)
 
+def a_to_yt_time(tstamp):
+    tstamp = datetime.strptime(tstamp, '%Y-%m-%dT%H:%M:%S.%fZ')
+    return  "{}{}".format(tstamp.strftime('%s'), tstamp.strftime('%f'))[:-3]
+
+def a_id_to_yt_login(id):
+    """Convert Asana user ID to corresponding YouTrack Login"""
+    return _user_map[_a_users[id]['email']]['yt'].login
 
 def merge_into_map(i_list, k, map):
     """ Takes list of items (dict or obj) with some map key, `k` and the map to merge into.
     If item is a dict, it assumes it's an Asana item.  Otherwise, a YouTrack item """
     if not i_list:
         print "ERROR: i_list is empty!"
+        return
     subkey = 'a' if isinstance(i_list[0], dict) else 'yt'
     # Deal with Asana and YouTrack items differently
     if subkey == 'a':
@@ -96,7 +102,7 @@ def migrate_workspace_users(a_conn, yt_conn, a_work):
     # Add these Asana users to our map
     merge_into_map(a_users, 'email', _user_map)
     global _a_users
-    _a_users = {i['id']: i for i in a_users}
+    _a_users = {i['id']: i.copy() for i in a_users}
     a_emails = set([au['email'] for au in a_users])
     print "Found existing Asana Users: {} ".format(a_emails)
     yt_users = [i for i in yt_conn.getUsers()]
@@ -124,10 +130,10 @@ def migrate_projects_to_subsystems(a_conn, yt_conn, a_work, yt_proj):
     a_projects = [a_conn.projects.find_by_id(p['id']) for p in a_projects]
     merge_into_map(a_projects, 'name', _project_map)
 
-    print "Asana {} Workspace Projects: {} ".format(a_work['name'], dump([p for p in a_projects]))
+    print "Asana {} Workspace Projects: {} ".format(a_work['name'], [p['name'] for p in a_projects])
     yt_subs = [yt_conn.getSubsystem(yt_proj.id, s.name) for s in yt_conn.getSubsystems(yt_proj.id)]
-    merge_into_map(a_projects, 'name', _project_map)
-    print "YouTrack {} Project Subsystems: {}".format(yt_proj.name, yt_subs)
+    merge_into_map(yt_subs, 'name', _project_map)
+    print "YouTrack {} Project Subsystems: {}".format(yt_proj.name, [i.name for i in yt_subs])
     new_subs = set([p['name'] for p in a_projects]) - set([y.name for y in yt_subs])
     for ns in new_subs:
         # Set the Asana Project Owner to be the YouTrack Subsystem Default Assignee Login
@@ -135,6 +141,110 @@ def migrate_projects_to_subsystems(a_conn, yt_conn, a_work, yt_proj):
         print "Creating {} Subsystem: {}".format(yt_proj.name, ns)
         yt_conn.createSubsystemDetailed(yt_proj.id, ns, False, default_login)
     return a_projects, yt_subs
+
+
+def migrate_tasks_to_issues(a_conn, yt_conn, a_work, yt_proj):
+    """ Asana Tasks can be in multiple Projects, yet YouTrack Issues can be in only one Subsystem.  Thus, we will
+     use the 1st Project in the Asana list to use as the YouTrack Subsystem """
+
+    # We must filter tasks by project, tag, or assignee + workspace, so we'll use the last option and migrate tasks
+    # one user at a time
+    for a_id, a_user in _a_users.iteritems():
+        a_tasks = [i for i in a_conn.tasks.find_all(params={'workspace': a_work['id'], 'assignee': a_id})]
+        if len(a_tasks) == 0:
+            continue
+        msg = "Fetching details for {} Asana Tasks assigned to {} in Workspace {}"
+        print msg.format(len(a_tasks), a_user['email'], a_work['name'])
+        a_tasks = [a_conn.tasks.find_by_id(i['id']) for i in a_tasks]
+        #print "Asana task details: {}".format(a_tasks)
+        # Add to map
+        merge_into_map(a_tasks, 'name', _task_map)
+        global _a_tasks
+        for i in a_tasks:
+            _a_tasks[i['id']] = i.copy()
+
+        # Checking existing tasks in YouTrack
+        yt_filter = "Assignee: {}".format(_user_map[a_user['email']]['yt'].login)
+        yt_issues = [i for i in yt_conn.getIssues(yt_proj.id, yt_filter, 0, 1000)]
+        #yt_issues = [yt_conn.getIssue(i.id) for i in yt_conn.getIssues(yt_proj.id, yt_filter, 0, 1000)]
+        merge_into_map(yt_issues, 'summary', _task_map)
+        global _yt_issues
+        for i in yt_issues:
+            _yt_issues[i.id] = i
+
+        #print "Task details: {}".format(yt_issues)
+        # Now add Issues from all Tasks
+        new_issues = []
+        for a in a_tasks:
+            # Skip adding tasks where task name matches issue summary
+            if 'yt' in _task_map[a['name']]:
+                continue
+
+            # Look at Asana Story to find out who the YouTrack Issue reporterName should be
+            a_stories = [a_conn.stories.find_by_id(i['id']) for i in a_conn.stories.find_by_task(a['id'])]
+            # Save for later
+            _a_tasks[a['id']]['stories'] = a_stories
+            # Establish our comments and who created this Task
+            comments = []
+            reporter_name = None
+            for s in a_stories:
+                if s['type'] == 'comment':
+                    comment = yt.Comment()
+                    comment.author = a_id_to_yt_login(s['created_by']['id'])
+                    #_user_map[_a_users[s['created_by']['id']]['email']]['yt'].login
+                    comment.text = s['text']
+                    comment.created = a_to_yt_time(s['created_at'])
+                    comments.append(comment)
+                elif s['type'] == 'system' and reporter_name is None and s['text'][:9] in ['assigned ', 'added to ', 'added sub']:
+                    # TODO if subtask, link to other YT Issue
+                    reporter_name = a_id_to_yt_login(s['created_by']['id'])
+
+            # Build a list for bulk importing later
+            """[{'numberInProject':'1', 'summary':'some problem', 'description':'some description', 'priority':'1',
+                                    'fixedVersion':['1.0', '2.0'],
+                                    'comment':[{'author':'yamaxim', 'text':'comment text', 'created':'1267030230127'}]},
+                                   {'numberInProject':'2', 'summary':'some problem', 'description':'some description', 'priority':'1'}]"""
+
+
+
+            new_issue = yt.Issue()
+            new_issue.comments = comments
+            new_issue.reporterName = reporter_name
+            new_issue.numberInProject=str(a['id'])
+            new_issue.summary = a.get('name', '')
+            new_issue.description=a.get('notes', '')
+            new_issue.state = 'Fixed' if a.get('completed', False) is True else 'Submitted'
+            new_issue.assignee = a_id_to_yt_login(a['assignee']['id'])
+            # new_issue = dict(numberInProject=str(a['id']), summary=a.get('name', ''), description=a.get('notes', ''),
+            #                  state='Fixed' if a.get('completed', False) is True else 'Submitted')
+            if 'created_at' in a:
+                # created = datetime.strptime(a['created_at'], '%Y-%m-%dT%H:%M:%S.%fZ')
+                # created = "{}{}".format(created.strftime('%s'), created.strftime('%f'))[:-3]
+                new_issue.created = a_to_yt_time(a['created_at'],)
+            if 'modified_at' in a:
+                # updated = datetime.strptime(a['modified_at'], '%Y-%m-%dT%H:%M:%S.%fZ')
+                # updated = "{}{}".format(updated.strftime('%s'), updated.strftime('%f'))[:-3]
+                # new_issue.updated = updated
+                new_issue.updated = a_to_yt_time(a['modified_at'])
+            if a.get('completed_at', None) is not None:
+                # resolved = datetime.strptime(a['completed_at'], '%Y-%m-%dT%H:%M:%S.%fZ')
+                # resolved = "{}{}".format(resolved.strftime('%s'), resolved.strftime('%f'))[:-3]
+                # new_issue.resolved = resolved
+                new_issue.resolved = a_to_yt_time(a['completed_at'])
+            if 'projects' in a and len(a['projects']) > 0:
+                new_issue['subsystem'] = a['projects'][0]['name']
+
+            new_issues.append(new_issue)
+        print 'Creating new YouTrack Issues for {}: {}'.format(a_user['email'], new_issues)
+        print yt_conn.importIssues(yt_proj.id, None, new_issues, test=False)
+
+    # # only get Tasks which are not yet complete
+    # now = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+    # global _project_map
+    # for name, proj in _project_map:
+    #     #a_tasks = [t for t in a_conn.tasks.find_by_project(p['id'], {'completed_since': now})]
+    #     a_tasks = [t for t in a_conn.tasks.find_by_project(proj['a']['id'])]
+    #     print "Found {} Asana tasks in Project {}: {}".format(len(a_tasks), p['name'], json.dumps(a_tasks, indent=4))
 
 
 # ----------------------
@@ -163,18 +273,9 @@ def main(a_pat, yt_url, yt_login, yt_pass):
                 break
         # Migrate users and save our list for later so we can assign people
         a_users, yt_users = migrate_workspace_users(a_conn, yt_conn, a_work)
-        # print "YT USERS: {}".format(yt_users)
-
         a_projects, yt_subs = migrate_projects_to_subsystems(a_conn, yt_conn, a_work, yt_proj)
-        # print "Asana projects: {}\n\n YT Subs: {}".format(a_projects, yt_subs)
+        migrate_tasks_to_issues(a_conn, yt_conn, a_work, yt_proj)
 
-
-
-        # # only get Tasks which are not yet complete
-        # now = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-        # for p in a_projects:
-        #     a_tasks = [t for t in a_conn.tasks.find_by_project(p['id'], {'completed_since': now})]
-        #     print "Found Asana tasks in Project {}: {}".format(p['name'], json.dumps(a_tasks, indent=4))
 
 
 if __name__ == '__main__':

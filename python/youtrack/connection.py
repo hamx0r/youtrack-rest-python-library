@@ -336,7 +336,7 @@ class Connection(object):
         res = self._reqXml('PUT', '/import/links', xml, 400)
         return res.toxml() if hasattr(res, "toxml") else res
 
-    def importIssues(self, projectId, assigneeGroup, issues):
+    def importIssues(self, projectId, assigneeGroup, issues, test=False):
         """ Import issues, returns import result (http://confluence.jetbrains.net/display/YTD2/Import+Issues)
             Accepts retrun of getIssues()
             Example: importIssues([{'numberInProject':'1', 'summary':'some problem', 'description':'some description', 'priority':'1',
@@ -417,7 +417,7 @@ class Connection(object):
         if isinstance(assigneeGroup, unicode):
             assigneeGroup = assigneeGroup.encode('utf-8')
 
-        url = '/import/' + urlquote(projectId) + '/issues?' + urllib.urlencode({'assigneeGroup': assigneeGroup})
+        url = '/import/' + urlquote(projectId) + '/issues?' + urllib.urlencode({'assigneeGroup': assigneeGroup, 'test': test})
         if isinstance(url, unicode):
             url = url.encode('utf-8')
         result = self._reqXml('PUT', url, xml, 400)
