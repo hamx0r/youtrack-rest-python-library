@@ -126,10 +126,11 @@ def migrate_workspace_users(a_conn, yt_conn, a_work):
 def migrate_projects_to_subsystems(a_conn, yt_conn, a_work, yt_proj):
     """ Creates SubSystems in a YouTrack project from Projects in an Asana Workspace """
     a_work_id = a_work['id']
-    a_projects = [p for p in a_conn.projects.find_all({'workspace': a_work_id, 'archived': False})]
+    # If Archived Projects are not getting picked , Tasks aren't all getting imported  because of:
+    # (<error fieldName="Subsystem"....).  This is why we have  `'archived': True`
+    a_projects = [p for p in a_conn.projects.find_all({'workspace': a_work_id, 'archived': True})]
     a_projects = [a_conn.projects.find_by_id(p['id']) for p in a_projects]
     merge_into_map(a_projects, 'name', _project_map)
-
     print "Asana {} Workspace Projects: {} ".format(a_work['name'], [p['name'] for p in a_projects])
     yt_subs = [yt_conn.getSubsystem(yt_proj.id, s.name) for s in yt_conn.getSubsystems(yt_proj.id)]
     merge_into_map(yt_subs, 'name', _project_map)
@@ -143,7 +144,7 @@ def migrate_projects_to_subsystems(a_conn, yt_conn, a_work, yt_proj):
     return a_projects, yt_subs
 
 
-def migrate_tasks_to_issues(a_conn, yt_conn, a_work, yt_proj):
+def migrate_tasks_to_issues(a_conn, yt_conn, a_work, yt_proj, yt_login):
     """ Asana Tasks can be in multiple Projects, yet YouTrack Issues can be in only one Subsystem.  Thus, we will
      use the 1st Project in the Asana list to use as the YouTrack Subsystem """
 
@@ -164,20 +165,22 @@ def migrate_tasks_to_issues(a_conn, yt_conn, a_work, yt_proj):
             _a_tasks[i['id']] = i.copy()
 
         # Checking existing tasks in YouTrack
+        # TODO somehow this isn't working because it tries to re-import existing tasks
         yt_filter = "Assignee: {}".format(_user_map[a_user['email']]['yt'].login)
         yt_issues = [i for i in yt_conn.getIssues(yt_proj.id, yt_filter, 0, 1000)]
         #yt_issues = [yt_conn.getIssue(i.id) for i in yt_conn.getIssues(yt_proj.id, yt_filter, 0, 1000)]
         merge_into_map(yt_issues, 'summary', _task_map)
         global _yt_issues
         for i in yt_issues:
-            _yt_issues[i.id] = i
+            _yt_issues[i.numberInProject] = i
 
         #print "Task details: {}".format(yt_issues)
         # Now add Issues from all Tasks
         new_issues = []
         for a in a_tasks:
             # Skip adding tasks where task name matches issue summary
-            if 'yt' in _task_map[a['name']]:
+            if 'yt' in _task_map[a['name']] or a['id'] in _yt_issues:
+                print "Skipping task import : {}".format(a['name'].encode('utf-8'))
                 continue
 
             # Look at Asana Story to find out who the YouTrack Issue reporterName should be
@@ -206,6 +209,11 @@ def migrate_tasks_to_issues(a_conn, yt_conn, a_work, yt_proj):
                                    {'numberInProject':'2', 'summary':'some problem', 'description':'some description', 'priority':'1'}]"""
 
 
+            if reporter_name is None:
+                if a.get('asignee', None) is not None:
+                    reporter_name = a_id_to_yt_login(a['assignee']['id'])
+                else:
+                    reporter_name = yt_login
 
             new_issue = yt.Issue()
             new_issue.comments = comments
@@ -235,7 +243,7 @@ def migrate_tasks_to_issues(a_conn, yt_conn, a_work, yt_proj):
                 new_issue['subsystem'] = a['projects'][0]['name']
 
             new_issues.append(new_issue)
-        print 'Creating new YouTrack Issues for {}: {}'.format(a_user['email'], new_issues)
+        print 'Creating new YouTrack Issues for {} (Asana IDs: {})'.format(a_user['email'], [n.numberInProject for n in new_issues])
         print yt_conn.importIssues(yt_proj.id, None, new_issues, test=False)
 
     # # only get Tasks which are not yet complete
@@ -266,7 +274,6 @@ def main(a_pat, yt_url, yt_login, yt_pass):
     for a_work in a_workspaces:
         if a_work['name'] not in [p.name for p in yt_projects]:
             print "Creating YouTrack Project from {} Workspace".format(a_work['name'])
-            # TODO create missing Projects from Workspaces
         for p in yt_projects:
             if p.name == a_work['name']:
                 yt_proj = p
@@ -274,7 +281,7 @@ def main(a_pat, yt_url, yt_login, yt_pass):
         # Migrate users and save our list for later so we can assign people
         a_users, yt_users = migrate_workspace_users(a_conn, yt_conn, a_work)
         a_projects, yt_subs = migrate_projects_to_subsystems(a_conn, yt_conn, a_work, yt_proj)
-        migrate_tasks_to_issues(a_conn, yt_conn, a_work, yt_proj)
+        migrate_tasks_to_issues(a_conn, yt_conn, a_work, yt_proj, yt_login)
 
 
 
