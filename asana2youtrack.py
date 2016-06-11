@@ -288,11 +288,11 @@ def main(a_pat, yt_url, yt_login, yt_pass):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--asana_pat", '-t', help='Your Asana Personal Access Token', type=str)
-    parser.add_argument("--asana_workspace", '-w', help="Asana Workspace to migrate", type=str)
+    # parser.add_argument("--asana_workspace", '-w', help="Asana Workspace to migrate", type=str)
     parser.add_argument("--youtrack_url", '-u', help="YouTrack URL", type=str)
     parser.add_argument("--youtrack_login", '-l', help="YouTrack Login (user)", type=str)
     parser.add_argument("--youtrack_password", '-p', help="YouTrack Password", type=str)
-    parser.add_argument("--youtrack_project", '-r', help="YouTrack Project to migrate into", type=str)
+    # parser.add_argument("--youtrack_project", '-r', help="YouTrack Project to migrate into", type=str)
 
     args = parser.parse_args()
     main(args.asana_pat, args.youtrack_url, args.youtrack_login, args.youtrack_password)
