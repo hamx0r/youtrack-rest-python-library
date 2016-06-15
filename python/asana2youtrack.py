@@ -26,8 +26,6 @@ assignee
 due_on          <None>
 """
 
-
-
 # TODO Deal with Asana subtasks
 # TODO Offer different mappings of Asana Projects to YouTrack (ie Type, Priority, Subsystem)
 # TODO Add option to migrate ALL tasks or just incomplete ones
@@ -48,18 +46,20 @@ _user_map = dict()  # map by email
 _workspace_map = dict()  # map by name
 _project_map = dict()  # map by name
 _task_map = dict()  # map by Asana name and YouTrack summary
-_asana_id_map = dict() # map Asana tasks and YouTrac issues by ID (YouTrack AsanaID field)
+_asana_id_map = dict()  # map Asana tasks and YouTrac issues by ID (YouTrack AsanaID field)
 # These dicts refactor our API-returned lists into dicts
 _a_users = dict()
 _yt_users = dict()
 _a_tasks = dict()
 _yt_issues = dict()
 
+
 # ----------------------
 # Helper Functions
 # ----------------------
 def dump(j):
     return json.dumps(j, indent=4)
+
 
 def a_to_yt_time(tstamp):
     tstamp = datetime.strptime(tstamp, '%Y-%m-%dT%H:%M:%S.%fZ')
@@ -68,13 +68,14 @@ def a_to_yt_time(tstamp):
 
 def a_to_yt_date(tstamp):
     tstamp = datetime.strptime(tstamp, '%Y-%m-%d')
-    return "{}".format(int(tstamp.strftime('%s'))*1000)
+    return "{}".format(int(tstamp.strftime('%s')) * 1000)
+
 
 def a_id_to_yt_login(id):
     """Convert Asana user ID to corresponding YouTrack Login"""
     return _user_map[_a_users[id]['email']]['yt'].login
 
-# TODO write helpers to cache Asana Tasks and Stories to local JSON files.
+
 def get_task_details(a_conn, a_tasks):
     """ Uses locally cached JSON data if available.  Otherwise, fetches from Asana API then caches it for next time. """
     resp = []
@@ -90,9 +91,10 @@ def get_task_details(a_conn, a_tasks):
         resp.append(details)
     return resp
 
+
 def get_task_stories(a_conn, a_task):
     """ Uses locally cached JSON data if available.  Otherwise, fetches from Asana API then caches it for next time. """
-    #a_stories = [a_conn.stories.find_by_id(i['id']) for i in a_conn.stories.find_by_task(a['id'])]
+    # a_stories = [a_conn.stories.find_by_id(i['id']) for i in a_conn.stories.find_by_task(a['id'])]
 
 
     fname = 'task_stories_{}.json'.format(a_task['id'])
@@ -109,7 +111,7 @@ def get_task_stories(a_conn, a_task):
 def get_story_details(a_conn, a_stories):
     """ Uses locally cached JSON data if available.  Otherwise, fetches from Asana API then caches it for next time. """
     resp = []
-    #[a_conn.stories.find_by_id(i['id']) for i in a_conn.stories.find_by_task(a['id'])]
+    # [a_conn.stories.find_by_id(i['id']) for i in a_conn.stories.find_by_task(a['id'])]
     for story in a_stories:
         fname = 'story_{}'.format(story['id'])
         try:
@@ -121,6 +123,7 @@ def get_story_details(a_conn, a_stories):
                 json.dump(details, f)
         resp.append(details)
     return resp
+
 
 def merge_into_map(i_list, k, map):
     """ Takes list of items (dict or obj) with some map key, `k` and the map to merge into.
@@ -210,10 +213,9 @@ def migrate_tasks_to_issues(a_conn, yt_conn, a_work, yt_proj, yt_login):
             continue
         msg = "Fetching details for {} Asana Tasks assigned to {} in Workspace {}"
         print msg.format(len(a_tasks), a_user['email'], a_work['name'])
-        # todo use get_task_details
-        #a_tasks = [a_conn.tasks.find_by_id(i['id']) for i in a_tasks]
         a_tasks = get_task_details(a_conn, a_tasks)
-        #print "Asana task details: {}".format(a_tasks)
+        # print "Asana task details: {}".format(a_tasks)
+
         # Add to map
         merge_into_map(a_tasks, 'name', _task_map)
         global _a_tasks
@@ -222,10 +224,9 @@ def migrate_tasks_to_issues(a_conn, yt_conn, a_work, yt_proj, yt_login):
 
         print "Fetching existing YouTrack tasks"
         # Checking existing issues in YouTrack
-        # TODO somehow this isn't working because it tries to re-import existing tasks
         yt_filter = "Assignee: {}".format(_user_map[a_user['email']]['yt'].login)
         yt_issues = [i for i in yt_conn.getIssues(yt_proj.id, yt_filter, 0, 1000)]
-        #yt_issues = [yt_conn.getIssue(i.id) for i in yt_conn.getIssues(yt_proj.id, yt_filter, 0, 1000)]
+        # yt_issues = [yt_conn.getIssue(i.id) for i in yt_conn.getIssues(yt_proj.id, yt_filter, 0, 1000)]
         merge_into_map(yt_issues, 'summary', _task_map)
         merge_into_map(yt_issues, 'AsanaID', _asana_id_map)
         global _yt_issues
@@ -234,7 +235,7 @@ def migrate_tasks_to_issues(a_conn, yt_conn, a_work, yt_proj, yt_login):
             numberInProject = max(numberInProject, int(i.numberInProject))
         numberInProject += 1
 
-        #print "Task details: {}".format(yt_issues)
+        # print "Task details: {}".format(yt_issues)
         # Now add Issues from all Tasks
         new_issues = []
         print 'Fetching Asana stories for each task...'
@@ -245,9 +246,6 @@ def migrate_tasks_to_issues(a_conn, yt_conn, a_work, yt_proj, yt_login):
                 continue
 
             # Look at Asana Story to find out who the YouTrack Issue reporterName should be
-            # todo use get_story_details
-            #a_stories = [a_conn.stories.find_by_id(i['id']) for i in a_conn.stories.find_by_task(a['id'])]
-            #a_stories = a_conn.stories.find_by_task(a['id'])
             a_stories = get_task_stories(a_conn, a)
             a_stories = get_story_details(a_conn, a_stories)
 
@@ -260,11 +258,12 @@ def migrate_tasks_to_issues(a_conn, yt_conn, a_work, yt_proj, yt_login):
                 if s['type'] == 'comment':
                     comment = yt.Comment()
                     comment.author = a_id_to_yt_login(s['created_by']['id'])
-                    #_user_map[_a_users[s['created_by']['id']]['email']]['yt'].login
+                    # _user_map[_a_users[s['created_by']['id']]['email']]['yt'].login
                     comment.text = s['text']
                     comment.created = a_to_yt_time(s['created_at'])
                     comments.append(comment)
-                elif s['type'] == 'system' and reporter_name is None and s['text'][:9] in ['assigned ', 'added to ', 'added sub']:
+                elif s['type'] == 'system' and reporter_name is None and s['text'][:9] in ['assigned ', 'added to ',
+                                                                                           'added sub']:
                     # TODO if subtask, link to other YT Issue
                     reporter_name = a_id_to_yt_login(s['created_by']['id'])
 
@@ -273,7 +272,6 @@ def migrate_tasks_to_issues(a_conn, yt_conn, a_work, yt_proj, yt_login):
                                     'fixedVersion':['1.0', '2.0'],
                                     'comment':[{'author':'yamaxim', 'text':'comment text', 'created':'1267030230127'}]},
                                    {'numberInProject':'2', 'summary':'some problem', 'description':'some description', 'priority':'1'}]"""
-
 
             if reporter_name is None:
                 if a.get('asignee', None) is not None:
@@ -285,9 +283,9 @@ def migrate_tasks_to_issues(a_conn, yt_conn, a_work, yt_proj, yt_login):
             new_issue.comments = comments
             new_issue.reporterName = reporter_name
             new_issue['AsanaID'] = str(a['id'])
-            new_issue.numberInProject=str(numberInProject)
+            new_issue.numberInProject = str(numberInProject)
             new_issue.summary = a.get('name', '')
-            new_issue.description=a.get('notes', '')
+            new_issue.description = a.get('notes', '')
             new_issue.state = 'Fixed' if a.get('completed', False) is True else 'Submitted'
             new_issue.assignee = a_id_to_yt_login(a['assignee']['id'])
             if a['due_on'] is not None:
@@ -313,16 +311,17 @@ def migrate_tasks_to_issues(a_conn, yt_conn, a_work, yt_proj, yt_login):
 
             new_issues.append(new_issue)
             numberInProject += 1
-        print 'Creating new YouTrack Issues for {} (Asana IDs: {})'.format(a_user['email'], [n.AsanaID for n in new_issues])
+        print 'Creating new YouTrack Issues for {} (Asana IDs: {})'.format(a_user['email'],
+                                                                           [n.AsanaID for n in new_issues])
         print yt_conn.importIssues(yt_proj.id, None, new_issues, test=False)
 
-    # # only get Tasks which are not yet complete
-    # now = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-    # global _project_map
-    # for name, proj in _project_map:
-    #     #a_tasks = [t for t in a_conn.tasks.find_by_project(p['id'], {'completed_since': now})]
-    #     a_tasks = [t for t in a_conn.tasks.find_by_project(proj['a']['id'])]
-    #     print "Found {} Asana tasks in Project {}: {}".format(len(a_tasks), p['name'], json.dumps(a_tasks, indent=4))
+        # # only get Tasks which are not yet complete
+        # now = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+        # global _project_map
+        # for name, proj in _project_map:
+        #     #a_tasks = [t for t in a_conn.tasks.find_by_project(p['id'], {'completed_since': now})]
+        #     a_tasks = [t for t in a_conn.tasks.find_by_project(proj['a']['id'])]
+        #     print "Found {} Asana tasks in Project {}: {}".format(len(a_tasks), p['name'], json.dumps(a_tasks, indent=4))
 
 
 # ----------------------
@@ -356,7 +355,7 @@ def main(a_pat, yt_url, yt_login, yt_pass):
         cf.isPrivate = False
         cf.visibleByDefault = False
 
-        #print "Existing Project Fields: {}".format(yt_conn.getProjectCustomFields(yt_proj.id))
+        # print "Existing Project Fields: {}".format(yt_conn.getProjectCustomFields(yt_proj.id))
         try:
             asana_id_exists = yt_conn.getCustomField(field_name)
         except:
@@ -382,7 +381,6 @@ def main(a_pat, yt_url, yt_login, yt_pass):
         a_users, yt_users = migrate_workspace_users(a_conn, yt_conn, a_work)
         a_projects, yt_subs = migrate_projects_to_subsystems(a_conn, yt_conn, a_work, yt_proj)
         migrate_tasks_to_issues(a_conn, yt_conn, a_work, yt_proj, yt_login)
-
 
 
 if __name__ == '__main__':
