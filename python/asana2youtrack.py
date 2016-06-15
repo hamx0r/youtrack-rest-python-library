@@ -189,6 +189,7 @@ def migrate_projects_to_subsystems(a_conn, yt_conn, a_work, yt_proj):
     # If Archived Projects are not getting picked , Tasks aren't all getting imported  because of:
     # (<error fieldName="Subsystem"....).  This is why we have  `'archived': True`
     a_projects = [p for p in a_conn.projects.find_all({'workspace': a_work_id, 'archived': True})]
+    a_projects = a_projects + [p for p in a_conn.projects.find_all({'workspace': a_work_id, 'archived': False})]
     a_projects = [a_conn.projects.find_by_id(p['id']) for p in a_projects]
     merge_into_map(a_projects, 'name', _project_map)
     print "Asana {} Workspace Projects: {} ".format(a_work['name'], [p['name'] for p in a_projects])
@@ -347,10 +348,17 @@ def main(a_pat, yt_url, yt_login, yt_pass):
     for a_work in a_workspaces:
         if a_work['name'] not in [p.name for p in yt_projects]:
             print "Creating YouTrack Project from {} Workspace".format(a_work['name'])
+        yt_proj = None
         for p in yt_projects:
             if p.name == a_work['name']:
                 yt_proj = p
                 break
+        if yt_proj is None:
+            yt_proj = yt.Project()
+            yt_proj.name = a_work['name']
+            yt_proj.id = a_work['name'].replace(' ', '').upper()
+            yt_proj.lead = yt_login
+            print yt_conn.createProject(yt_proj)
 
         field_name = 'AsanaID'
         cf = yt.CustomField()
@@ -368,7 +376,10 @@ def main(a_pat, yt_url, yt_login, yt_pass):
             print 'Creating YouTrack Custom Field to save our Asana ID in'
             yt_conn.createCustomField(cf)
 
-        asana_id_exists = yt_conn.getProjectCustomField(yt_proj.id, 'Due Date')
+        try:
+            asana_id_exists = yt_conn.getProjectCustomField(yt_proj.id, 'Due Date')
+        except:
+            asana_id_exists = None
         if not asana_id_exists:
             print 'Adding YouTrack Due Date Field to {} Project'.format(yt_proj.id)
             yt_conn.createProjectCustomFieldDetailed(yt_proj.id, 'Due Date', '')
@@ -382,8 +393,8 @@ def main(a_pat, yt_url, yt_login, yt_pass):
             yt_conn.createProjectCustomFieldDetailed(yt_proj.id, field_name, '')
 
         # Migrate users and save our list for later so we can assign people
-        a_users, yt_users = migrate_workspace_users(a_conn, yt_conn, a_work)
-        a_projects, yt_subs = migrate_projects_to_subsystems(a_conn, yt_conn, a_work, yt_proj)
+        migrate_workspace_users(a_conn, yt_conn, a_work)
+        migrate_projects_to_subsystems(a_conn, yt_conn, a_work, yt_proj)
         migrate_tasks_to_issues(a_conn, yt_conn, a_work, yt_proj, yt_login)
 
 
