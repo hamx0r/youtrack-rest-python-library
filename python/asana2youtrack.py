@@ -67,7 +67,11 @@ def a_to_yt_time(tstamp):
 
 
 def a_to_yt_date(tstamp):
-    tstamp = datetime.strptime(tstamp, '%Y-%m-%d')
+    """Asana due_on values can have a time, but generally just have a date.
+    YouTrack Due Date only stores a date, not a time, so we'll slice the incoming string to only get the date.
+    It must be converted to epoch time in milliseconds, even though YouTrack displays the Due Date in the same format
+    as Asana stores the due_on string."""
+    tstamp = datetime.strptime(tstamp[:10], '%Y-%m-%d')
     return "{}".format(int(tstamp.strftime('%s')) * 1000)
 
 
